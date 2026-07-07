@@ -1,0 +1,11 @@
+# Evaluation working data (fetched repos, built graphs, raw results) - regenerable
+eval/_repos/
+eval/_graphs/
+eval/results/
+# Note: eval/report/ (REPORT.md + charts) IS committed as the presentable deliverable.
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
