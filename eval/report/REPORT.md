@@ -23,6 +23,8 @@ Question tested: **does giving an LLM the ContextAI code-graph MCP tools, *along
 
 ![effort](effort.png)
 
+![pareto](pareto.png)
+
 ## Per-codebase
 
 ### click  (34 questions)
