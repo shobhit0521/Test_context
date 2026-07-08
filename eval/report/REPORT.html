@@ -96,6 +96,133 @@ a{color:#2563eb}
 </tr>
 </tbody>
 </table>
+<h2 id="breakdown-by-repo">Breakdown by repo</h2>
+<p>The headline numbers average over all 4 repos; per-repo results vary more than the average suggests, and no single repo shows Arm B clearly ahead — including <code>rich</code>, the largest/most complex codebase, where a code graph would intuitively help the most.</p>
+<p><img alt="by_repo" src="by_repo.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>Judge: A / tie / B</th>
+<th>B win-rate</th>
+<th>F1 (A)</th>
+<th>F1 (B)</th>
+<th>Rubric (A)</th>
+<th>Rubric (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>click</td>
+<td>13 / 14 / 9</td>
+<td>44%</td>
+<td>0.460</td>
+<td>0.432</td>
+<td>2.56</td>
+<td>2.54</td>
+</tr>
+<tr>
+<td>flask</td>
+<td>9 / 19 / 8</td>
+<td>49%</td>
+<td>0.989</td>
+<td>0.973</td>
+<td>2.78</td>
+<td>2.73</td>
+</tr>
+<tr>
+<td>httpx</td>
+<td>13 / 12 / 11</td>
+<td>47%</td>
+<td>0.864</td>
+<td>0.864</td>
+<td>2.82</td>
+<td>2.81</td>
+</tr>
+<tr>
+<td>rich</td>
+<td>15 / 13 / 8</td>
+<td>40%</td>
+<td>0.657</td>
+<td>0.714</td>
+<td>2.58</td>
+<td>2.46</td>
+</tr>
+</tbody>
+</table>
+<h2 id="breakdown-by-query-type-blind-judge">Breakdown by query type (blind judge)</h2>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>A / tie / B</th>
+<th>B win-rate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>callees</td>
+<td>5 / 21 / 7</td>
+<td>53%</td>
+</tr>
+<tr>
+<td>callers</td>
+<td>11 / 12 / 7</td>
+<td>43%</td>
+</tr>
+<tr>
+<td>definition</td>
+<td>4 / 4 / 4</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>feature</td>
+<td>7 / 9 / 5</td>
+<td>45%</td>
+</tr>
+<tr>
+<td>flow</td>
+<td>14 / 3 / 7</td>
+<td>35%</td>
+</tr>
+<tr>
+<td>impact</td>
+<td>9 / 9 / 6</td>
+<td>44%</td>
+</tr>
+</tbody>
+</table>
+<p>Notably, <code>flow</code> (multi-hop execution tracing) — the type where a pre-built call graph should intuitively help most — has Arm B's <em>lowest</em> win-rate of any type.</p>
+<h2 id="deep-dive-why-did-arm-b-sometimes-do-worse">Deep dive: why did Arm B sometimes do worse?</h2>
+<p>Two distinct, verified mechanisms explain this, and they cut in different directions for how much to trust the headline win-rate.</p>
+<h3 id="1-the-judge-itself-is-sometimes-wrong-headline-number-is-noisier-than-it-looks">1. The judge itself is sometimes wrong (headline number is noisier than it looks)</h3>
+<p>Manual spot-check of a <code>flow</code> query Arm B "lost" (<code>rich-02</code>, repeat 1): the judge (o3) penalized Arm B for stating the print buffer is "thread-local," calling this a factual error ("the buffer is an attribute on the Console instance, not thread-local"). Checking Rich's actual source shows Arm B was correct and the judge was wrong:</p>
+<pre><code class="language-python">class ConsoleThreadLocals(threading.local):
+    &quot;&quot;&quot;Thread local values for Console context.&quot;&quot;&quot;
+...
+@property
+def _buffer(self) -&gt; List[Segment]:
+    &quot;&quot;&quot;Get a thread local buffer.&quot;&quot;&quot;
+    return self._thread_locals.buffer
+</code></pre>
+<p>This is one manually-verified case, not an automated audit of all judged queries — but it demonstrates that some fraction of the reported win/loss split is judge noise rather than a real quality gap. With 58/144 judged queries already ties, the true gap between arms is likely smaller than the raw 45.1% vs. 54.9% split suggests.</p>
+<h3 id="2-a-real-mechanism-over-trusting-the-graph-as-a-complete-answer">2. A real mechanism: over-trusting the graph as a complete answer</h3>
+<p>First, a sanity check on Arm B's setup itself: across all 144 successful Arm B runs, <strong>75 used both native and ContextAI tools together</strong>, 69 used ContextAI tools only (by choice, not necessity), and <strong>0 were missing native tool access</strong> — i.e. Arm B never lost capability relative to Arm A; it only ever gained the option to use ContextAI's tools. Any quality gap is therefore about how the extra tool was <em>used</em>, not about Arm B being handicapped.</p>
+<p>Across the 87 paired (query, repeat) cases with an objective answer key, Arm B's predicted symbol set was a <strong>strict subset</strong> of Arm A's in 19 cases, versus only 1 case the other way around. In other words, when one arm's answer was a pure subset of the other's (never contained anything the other missed), it was Arm B's more often — the signature of trusting a single structured source over exhaustive verification.</p>
+<p>ContextAI's graph is a static-analysis snapshot with known blind spots — the MCP server itself exposes a <code>list_gaps</code> tool specifically for <code>unresolved_calls</code> and <code>dynamic_gaps</code> (decorators, dynamic dispatch, etc. a static analyzer can't always resolve). When Codex treated <code>get_context</code>/<code>find_node</code>'s returned edges as the complete answer instead of cross-checking with a grep pass, it inherited those blind spots. Grep-based Arm A doesn't have this particular blind spot, because it searches exhaustively by construction.</p>
+<p>Examples (<code>click-02</code> r0, <code>click-02</code> r1):</p>
+<pre><code>click-02 r0:
+  gold:  ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::Abort', 'exceptions.py::show', 'utils.py::PacifyFlushWrapper', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm A: ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::show', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm B: ['core.py::_main_shell_completion', 'core.py::invoke', 'core.py::make_context', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']   (strict subset of A's answer)
+
+click-02 r1:
+  gold:  ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::Abort', 'exceptions.py::show', 'utils.py::PacifyFlushWrapper', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm A: ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::show', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm B: ['core.py::_main_shell_completion', 'core.py::invoke', 'core.py::make_context', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']   (strict subset of A's answer)
+
+</code></pre>
+<p><strong>Takeaway</strong>: more tool capability doesn't guarantee better use of it. A tool that returns a fast, confident, structured answer can let an agent skip the slower verification step it would otherwise do — and that answer can be silently incomplete. This suggests ContextAI's tools (or prompting around them) should nudge agents to treat the graph as a lead to verify for exhaustive-enumeration questions ("who calls X"), not a final answer.</p>
 <h2 id="efficiency">Efficiency</h2>
 <p><img alt="efficiency" src="efficiency.png" /></p>
 <table>
