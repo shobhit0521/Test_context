@@ -1,51 +1,29 @@
-"""Target codebases for the evaluation.
+"""Target codebases for the real-LLM evaluation.
 
-Each entry pins a repo to a tag/commit for reproducibility and points at the
-directory that actually holds the Python source to analyze. `contextai` is a
-local "dogfood" target copied from the installed packages (no network needed).
+Four major, widely-used Python projects, each pinned to a release tag for
+reproducibility, each in the ~9k-26k LOC range. `source_subpath` points at the
+importable package directory (build_graph and the agents analyze this tree).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class Repo:
     name: str
-    # Either a git url + ref, or local=True to copy installed packages.
-    url: str | None = None
-    ref: str | None = None
-    # Path (relative to the clone root) that contains the source to analyze.
-    source_subpath: str = "."
-    local_packages: list[str] = field(default_factory=list)
+    url: str
+    ref: str
+    source_subpath: str  # dir (relative to clone root) holding the package source
+    loc: int             # approx non-test LOC (for reporting)
 
 
 REPOS: list[Repo] = [
-    Repo(
-        name="requests",
-        url="https://github.com/psf/requests",
-        ref="v2.32.3",
-        source_subpath="src/requests",
-    ),
-    Repo(
-        name="flask",
-        url="https://github.com/pallets/flask",
-        ref="3.0.3",
-        source_subpath="src/flask",
-    ),
-    Repo(
-        name="click",
-        url="https://github.com/pallets/click",
-        ref="8.1.7",
-        source_subpath="src/click",
-    ),
-    # Dogfood: analyze ContextAI's own source (copied from installed packages).
-    Repo(
-        name="contextai",
-        local_packages=["graph", "contextai_mcp"],
-        source_subpath=".",
-    ),
+    Repo("flask", "https://github.com/pallets/flask", "3.0.3", "src/flask", 9024),
+    Repo("click", "https://github.com/pallets/click", "8.1.7", "src/click", 10124),
+    Repo("httpx", "https://github.com/encode/httpx", "0.27.0", "httpx", 9033),
+    Repo("rich", "https://github.com/Textualize/rich", "v13.7.1", "rich", 26427),
 ]
 
 

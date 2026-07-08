@@ -1,7 +1,7 @@
 # Use python3 by default; override with `make PYTHON=python`
 PYTHON ?= python3
 
-.PHONY: install fetch eval report all clean
+.PHONY: install fetch clean
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -9,13 +9,8 @@ install:
 fetch:
 	cd eval && $(PYTHON) fetch.py
 
-eval:
-	cd eval && $(PYTHON) run.py --sample 40
-
-report:
-	cd eval && $(PYTHON) report.py
-
-all: fetch eval report
+# NOTE: the real-LLM eval runner + report targets are added once the metrics
+# design is agreed and an OPENAI_API_KEY secret is provided.
 
 clean:
 	rm -rf eval/_repos eval/_graphs eval/results

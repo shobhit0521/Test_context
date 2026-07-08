@@ -1,63 +1,37 @@
 # Test_context
 
-Evaluation harness proving that **ContextAI's code-graph MCP tools, used alongside
-traditional `grep`/read, give an LLM better context than traditional tools alone.**
+Evaluation of whether **ContextAI's code-graph MCP tools help a real LLM understand code
+better** — when the LLM has them available alongside traditional `grep`/read and decides
+itself which tools to call (agentic).
 
-See [`eval/`](eval/) for the harness and [`eval/report/REPORT.md`](eval/report/REPORT.md)
-for results across 4 real codebases (`requests`, `flask`, `click`, and ContextAI itself).
+## Approach
 
-## Headline
+For each of **48 code-understanding queries** (12 across each of 4 major Python repos), a
+real LLM answers **twice**:
 
-Across **140** focal functions in **4** codebases, on the task *"which functions call F?"*:
+- **Arm A** — LLM + traditional tools (grep/read) only.
+- **Arm B** — LLM + traditional tools **+ ContextAI MCP tools**.
 
-| Arm | Precision | Recall | Effort (hits to verify) |
-|---|---|---|---|
-| Graph only | **0.93** | 0.83 | **0.0** |
-| Traditional only | 0.89 | **1.00** | 4.31 |
-| Combined | 0.86 | **1.00** | **1.32** |
+We then compare the **model's answers and efficiency** across arms.
 
-The graph alone is the most precise and needs zero verification but misses ~17% of
-callers; traditional search is complete but noisy (4.3 hits to vet per question);
-**combined keeps full recall while cutting verification effort by ~69%**. Neither
-tool alone wins — together they give complete context with the least review effort.
+## Target codebases (`eval/repos.py`)
 
-## Quick start
+| Repo | ~LOC | Domain |
+|---|---|---|
+| `flask` | 9,024 | web framework |
+| `click` | 10,124 | CLI framework |
+| `httpx` | 9,033 | HTTP client |
+| `rich` | 26,427 | terminal rendering / TUI |
+
+## Status
+
+The target repos, the 48-query set (`eval/queries.json`), and the tool plumbing are in
+place. The agentic runner + scoring are added once the scoring metrics are agreed and an
+`OPENAI_API_KEY` is provided. See [`eval/README.md`](eval/README.md).
+
+## Quick start (what runs today)
 
 ```bash
 pip install -r requirements.txt
-make all        # fetch repos -> build graphs (MCP) + score -> report
+make fetch     # clone/pin flask, click, httpx, rich
 ```
-
-### Viewing the report
-
-The Cursor IDE shows raw HTML source, not a rendered page, so:
-
-- **Easiest — open the committed rendered files directly in the IDE** (just click them):
-  - [`eval/report/report.pdf`](eval/report/report.pdf) — full report, opens in the PDF viewer.
-  - [`eval/report/report_page.png`](eval/report/report_page.png) — full report as one image.
-- **To render the HTML yourself**: `eval/report/report.html` is self-contained — download it and
-  open in any browser, or use a "Live Preview" / "Live Server" IDE extension. In a browser you
-  can `Print → Save as PDF` for slides.
-- The individual charts are [`metrics.png`](eval/report/metrics.png),
-  [`effort.png`](eval/report/effort.png), and [`pareto.png`](eval/report/pareto.png).
-
-## Using the MCP server (Cursor and Claude Code)
-
-The evaluation is **client-agnostic**: it drives the `contextai-mcp` server over raw MCP
-(stdio) — exactly the tools Cursor or Claude Code would call — so the measured result holds
-for any MCP client. To connect the server in a client:
-
-**Claude Code** (reads `.mcp.json` at the project root — already committed here):
-```bash
-pip install contextai-mcp
-# either rely on the committed .mcp.json, or register explicitly:
-claude mcp add contextai-graph -- python3 -m contextai_mcp
-```
-
-**Cursor** (reads `.cursor/mcp.json` — already committed here):
-```bash
-pip install contextai-mcp   # then reload Cursor; the "contextai-graph" server appears
-```
-
-Both configs launch the server as `python3 -m contextai_mcp`, which is PATH-independent
-(the console script installs to `~/.local/bin`, which is not always on `PATH`).

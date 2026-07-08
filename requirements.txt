@@ -1,6 +1,7 @@
-# ContextAI MCP evaluation harness dependencies (pinned for reproducibility)
+# Real-LLM evaluation harness dependencies (pinned for reproducibility)
 contextai-mcp==0.1.2
 contextai-graph==0.2.1
 mcp==1.28.1
+openai==2.44.0
 jedi==0.20.0
 matplotlib==3.11.0
