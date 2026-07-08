@@ -28,8 +28,18 @@ pip install -r requirements.txt
 make all        # fetch repos -> build graphs (MCP) + score -> report
 ```
 
-Open [`eval/report/report.html`](eval/report/report.html) for the self-contained report
-(embedded charts, ready to present or print to PDF).
+### Viewing the report
+
+The Cursor IDE shows raw HTML source, not a rendered page, so:
+
+- **Easiest — open the committed rendered files directly in the IDE** (just click them):
+  - [`eval/report/report.pdf`](eval/report/report.pdf) — full report, opens in the PDF viewer.
+  - [`eval/report/report_page.png`](eval/report/report_page.png) — full report as one image.
+- **To render the HTML yourself**: `eval/report/report.html` is self-contained — download it and
+  open in any browser, or use a "Live Preview" / "Live Server" IDE extension. In a browser you
+  can `Print → Save as PDF` for slides.
+- The individual charts are [`metrics.png`](eval/report/metrics.png),
+  [`effort.png`](eval/report/effort.png), and [`pareto.png`](eval/report/pareto.png).
 
 ## Using the MCP server (Cursor and Claude Code)
 

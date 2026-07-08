@@ -1,16 +1,19 @@
+# Use python3 by default; override with `make PYTHON=python`
+PYTHON ?= python3
+
 .PHONY: install fetch eval report all clean
 
 install:
-	pip install -r requirements.txt
+	$(PYTHON) -m pip install -r requirements.txt
 
 fetch:
-	cd eval && python fetch.py
+	cd eval && $(PYTHON) fetch.py
 
 eval:
-	cd eval && python run.py --sample 40
+	cd eval && $(PYTHON) run.py --sample 40
 
 report:
-	cd eval && python report.py
+	cd eval && $(PYTHON) report.py
 
 all: fetch eval report
 

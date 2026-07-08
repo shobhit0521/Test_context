@@ -29,12 +29,13 @@ static resolution of real call sites), so the system under test never grades its
 ```bash
 pip install -r ../requirements.txt        # from repo root: pip install -r requirements.txt
 cd eval
-python fetch.py                           # clone/pin target repos (+ dogfood copy)
-python run.py --sample 40                 # build graphs (MCP) + score all repos
-python report.py                          # write report/REPORT.md + charts
+python3 fetch.py                          # clone/pin target repos (+ dogfood copy)
+python3 run.py --sample 40                # build graphs (MCP) + score all repos
+python3 report.py                         # write report/REPORT.md + charts
 ```
 
-Run a single codebase: `python run.py --sample 40 flask`.
+Run a single codebase: `python3 run.py --sample 40 flask`.
+(Use `python` instead of `python3` if that is your interpreter.)
 
 ## Layout
 
