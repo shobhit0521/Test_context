@@ -317,6 +317,211 @@ def make_repo_chart(repo_table: dict) -> str:
     return path.name
 
 
+def render_background_sections() -> str:
+    """Static narrative: what was built, why the graph exists, how the MCP
+    server was wired up, and how testing was conducted. This doesn't depend on
+    result data (unlike the rest of the report) but lives here so the whole
+    document is produced by one reproducible script."""
+    lines: list[str] = []
+
+    # ----- 1. What we built -----
+    lines.append("## 1. What we built")
+    lines.append("")
+    lines.append(
+        "The question this evaluation answers: **does giving a real coding agent access to "
+        "ContextAI's code-graph MCP tools make it better at understanding code**, compared to the "
+        "same agent using only its own native tools? We built a full, reproducible harness to "
+        "answer this with real agent runs rather than a hand-wavy comparison."
+    )
+    lines.append("")
+    lines.append("The harness has five stages, each a standalone script under `eval/`:")
+    lines.append("")
+    lines.append(
+        "1. **Fetch** (`fetch.py`) — clone and pin four real, widely-used open-source Python "
+        "projects at fixed release tags: `flask` (9k LOC), `click` (10k LOC), `httpx` (9k LOC), and "
+        "`rich` (26k LOC). Pinned versions mean results are reproducible — the code under test "
+        "can't drift."
+    )
+    lines.append(
+        "2. **Build graphs** (`build_graphs.py`) — for each repo, have Codex itself call ContextAI's "
+        "`build_graph` tool once, up front (see §3)."
+    )
+    lines.append(
+        "3. **Run** (`codex_runner.py` / `run_codex.py`) — for each of 48 hand-written "
+        "code-understanding questions (12 per repo, across 6 question types — see §4), run the real "
+        "**Codex CLI** twice: once with only its native tools (**Arm A**), once with the same tools "
+        "plus ContextAI's MCP server (**Arm B**). Each (question, arm) pair is repeated 3x to smooth "
+        "out model randomness, for 288 total agent runs."
+    )
+    lines.append(
+        "4. **Score** (`score.py`) — for questions with an objectively checkable answer (\"who calls "
+        "X\"), compute precision/recall/F1 against ground truth computed independently with `jedi` "
+        "(real static analysis, unrelated to ContextAI)."
+    )
+    lines.append(
+        "5. **Judge** (`judge.py`) — for every question, a separate LLM judge blindly compares the "
+        "Arm A and Arm B answers (order randomized, labels hidden) and picks a winner, plus scores "
+        "each on a 0-3 rubric."
+    )
+    lines.append("")
+    lines.append(
+        "One design principle held throughout the whole harness: **ContextAI is only ever touched "
+        "by Codex itself** — the tool actually under evaluation. None of our own orchestration code "
+        "calls the ContextAI MCP server directly (not even to build the graphs); every single "
+        "interaction with it happens because Codex, acting as an agent, decided to call it."
+    )
+    lines.append("")
+
+    # ----- 2. The graph's purpose -----
+    lines.append("## 2. The ContextAI code graph — what it is and why it should help")
+    lines.append("")
+    lines.append(
+        "Most code-understanding questions — \"who calls this function,\" \"what does this call,\" "
+        "\"what breaks if I change this,\" \"trace this request end to end\" — are really **graph "
+        "traversal questions** over the codebase's call structure. An agent using only grep/read has "
+        "to reconstruct that structure by hand: search for a name, open each hit, mentally note "
+        "which function it's inside, repeat. ContextAI's `build_graph` tool does that reconstruction "
+        "once, up front, via static analysis, and hands the agent a queryable structure instead."
+    )
+    lines.append("")
+    lines.append("Concretely, `build_graph(project_root, output)` walks a Python project and produces a JSON graph:")
+    lines.append("")
+    lines.append(
+        "- **Nodes** — one per function, method, class, file, or external library, each carrying "
+        "an id (e.g. `app.py::Flask::wsgi_app`), its type, source location, and — for functions — "
+        "rich metadata: full source, signature, side effects (e.g. `EMITS_EVENT`), error handling "
+        "(`has_try_catch`, `catches`), cyclomatic complexity, test coverage, and even version/git "
+        "history."
+    )
+    lines.append(
+        "- **Edges** — typed relationships between nodes: `CALLS`, `CONTAINS` (class → method), "
+        "`IMPORTS`, `RETURNS`, each with a criticality rating and whether it's confirmed only "
+        "statically or also seen at runtime."
+    )
+    lines.append(
+        "- **Gaps** — the graph is honest about what static analysis can't resolve. A `list_gaps` "
+        "tool reports `unresolved_calls` and `dynamic_gaps` (decorators, dynamic dispatch, registry "
+        "lookups) per node — cases a purely static pass can miss. This turns out to matter a lot for "
+        "our results (see \"Deep dive\" in §5 below)."
+    )
+    lines.append("")
+    lines.append(
+        "Once built, the graph is queried through four read tools: `find_node` (search by name), "
+        "`get_context` (a node plus its neighbors/edges, with source code attached), `get_edge_path` "
+        "(the direct relationship between two specific nodes), and `list_gaps`. We built the graph "
+        "**once per repo**, not per question, since static analysis is comparatively expensive and "
+        "the codebase doesn't change between questions."
+    )
+    lines.append("")
+
+    # ----- 3. How the MCP server was built and connected -----
+    lines.append("## 3. How the MCP server was built and connected")
+    lines.append("")
+    lines.append(
+        "ContextAI ships as `contextai-mcp`, a Python package implementing a real "
+        "[Model Context Protocol](https://modelcontextprotocol.io) server that speaks over stdio — "
+        "the same protocol Cursor, Claude Code, and Codex all support natively for extending an "
+        "agent with custom tools. We installed it via `pip install contextai-mcp contextai-graph` "
+        "(pinned versions in `requirements.txt`) and connected it to Codex exactly the way a real "
+        "user would: as a registered MCP server, not through any special integration code."
+    )
+    lines.append("")
+    lines.append("**Connecting it to Codex.** Codex CLI reads MCP server definitions from `config.toml`:")
+    lines.append("")
+    lines.append("```toml")
+    lines.append("[mcp_servers.contextai-graph]")
+    lines.append('command = "python3"')
+    lines.append('args = ["-m", "contextai_mcp"]')
+    lines.append('cwd = "/workspace/eval"')
+    lines.append("```")
+    lines.append("")
+    lines.append(
+        "We registered this with `codex mcp add contextai-graph -- python3 -m contextai_mcp`. Once "
+        "registered, Codex spawns the server as a subprocess at session start and can call any of "
+        "its tools (`build_graph`, `find_node`, `get_context`, `get_edge_path`, `list_gaps`, plus "
+        "`load_graph`/`run_trace`/`merge_trace`, which we didn't need for these read-only questions) "
+        "exactly like its own built-in tools."
+    )
+    lines.append("")
+    lines.append(
+        "**Isolating the two arms.** To make the comparison clean, we created two completely "
+        "separate `CODEX_HOME` directories (Codex's config/auth root, normally `~/.codex`) — "
+        "`_codex_home/no_mcp` for Arm A and `_codex_home/with_mcp` for Arm B — each independently "
+        "authenticated. `contextai-graph` is registered in the `with_mcp` config only. This means "
+        "the *only* difference between what Arm A and Arm B can do is the presence of this one MCP "
+        "server; model, sandbox policy, approval settings, and prompt are byte-for-byte identical."
+    )
+    lines.append("")
+    lines.append(
+        "**A real bug we found and fixed.** The MCP server subprocess (`python3 -m contextai_mcp`) "
+        "is a `python -m` invocation, which Python resolves by adding the *current working "
+        "directory* to `sys.path[0]`. If that cwd is inside a target repo, and the repo happens to "
+        "ship a file with the same name as a stdlib module, the import gets silently hijacked. "
+        "Flask ships `src/flask/typing.py` — so running the MCP server with its cwd inside Flask's "
+        "source tree breaks the import of the real stdlib `typing` module and crashes the server on "
+        "startup (`AttributeError: partially initialized module 'typing' has no attribute "
+        "'TYPE_CHECKING'`). We fixed this by pinning the server's own `cwd` to `eval/` (via the "
+        "`cwd` key shown above), which never collides with a target repo's module names — while "
+        "Codex's own agent loop still runs with its working root inside the target repo as normal, "
+        "unaffected."
+    )
+    lines.append("")
+    lines.append(
+        "**A real CLI limitation we worked around.** Codex's non-interactive mode (`codex exec`) "
+        "currently requires interactive approval for MCP tool calls, which can't be granted "
+        "headlessly and so auto-cancels by default — a known open issue "
+        "([openai/codex#24135](https://github.com/openai/codex/issues/24135)). We used "
+        "`--dangerously-bypass-approvals-and-sandbox` to work around this, applied identically to "
+        "*both* arms (not just Arm B), so reduced sandboxing isn't a hidden confound — only tool "
+        "availability differs between arms. This is a contained, disclosed trade-off: read-oriented "
+        "questions against pinned, throwaway repo clones, not untrusted external input."
+    )
+    lines.append("")
+
+    # ----- 4. How testing was done -----
+    lines.append("## 4. How testing was done")
+    lines.append("")
+    lines.append(
+        "**Questions.** 48 hand-written, symbol-grounded questions, 12 per repo, spanning six "
+        "reasoning types: `callers` (reverse edges), `callees` (forward edges), `flow` (multi-hop "
+        "execution tracing), `impact` (blast-radius / transitive reverse reachability), "
+        "`definition` (where/how something is defined), and `feature` (how a cross-cutting concern "
+        "works across modules). The first three types (`callers`/`callees`/`impact`) have an "
+        "objective, checkable answer; all six are judged."
+    )
+    lines.append("")
+    lines.append(
+        "**Running each question.** For every `(question, arm, repeat)` combination, we invoke "
+        "`codex exec` with Codex's working directory set to the target repo's source root, and a "
+        "JSON-schema-constrained final response so Codex must return a prose `answer` plus — for "
+        "objectively-scorable questions — a structured `symbols` list (`{file, name}` pairs). This "
+        "gets us exact, parseable answers instead of scraping free text. Every run's full raw tool-"
+        "call transcript (every tool called, its arguments, and its result) and every field of its "
+        "final answer are saved to disk."
+    )
+    lines.append("")
+    lines.append(
+        "**Scoring, two independent ways.** Objective scoring compares Codex's structured symbol "
+        "list against ground truth computed by `jedi` (real static analysis, run independently of "
+        "both ContextAI and Codex) via precision/recall/F1. Subjective scoring uses a **separate** "
+        "LLM (`o3`, a different model from the `gpt-5-codex` answerer, to avoid a model preferring "
+        "its own style) as a blind judge: it sees the question, the reference answer key when "
+        "available, and both answers with **labels stripped and order randomized**, then picks a "
+        "winner and scores each 0-3 on correctness/completeness/groundedness."
+    )
+    lines.append("")
+    lines.append(
+        "**Scale.** 48 questions x 2 arms x 3 repeats = 288 agent runs, plus 144 judge calls "
+        "(one per question/repeat pair, each comparing both arms at once). All runs completed with "
+        "**zero failures**. The full pipeline is reproducible end to end via `make eval`."
+    )
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def render_markdown(
     efficiency: dict,
     objective: dict,
@@ -338,8 +543,11 @@ def render_markdown(
         "See [`METRICS.md`](METRICS.md) for the full scoring contract."
     )
     lines.append("")
+    lines.append(render_background_sections())
 
-    lines.append("## Headline: blind judge win-rate")
+    lines.append("## 5. Test results")
+    lines.append("")
+    lines.append("### Headline: blind judge win-rate")
     lines.append("")
     if judge["n"]:
         lines.append(
@@ -353,7 +561,7 @@ def render_markdown(
     lines.append(f"![quality]({chart_files[0]})" if len(chart_files) > 0 else "")
     lines.append("")
 
-    lines.append("## Objective correctness (callers / callees / impact)")
+    lines.append("### Objective correctness (callers / callees / impact)")
     lines.append("")
     lines.append("| Arm | n | mean F1 |")
     lines.append("|---|---|---|")
@@ -372,7 +580,7 @@ def render_markdown(
             lines.append(f"| {qtype} | {a_str} | {b_str} |")
     lines.append("")
 
-    lines.append("## Absolute rubric (0-3 per axis, judge-scored)")
+    lines.append("### Absolute rubric (0-3 per axis, judge-scored)")
     lines.append("")
     lines.append("| Arm | Correctness | Completeness | Groundedness | Mean |")
     lines.append("|---|---|---|---|---|")
@@ -385,7 +593,7 @@ def render_markdown(
             )
     lines.append("")
 
-    lines.append("## Breakdown by repo")
+    lines.append("### Breakdown by repo")
     lines.append("")
     lines.append(
         "The headline numbers average over all 4 repos; per-repo results vary more than the "
@@ -410,7 +618,7 @@ def render_markdown(
         )
     lines.append("")
 
-    lines.append("## Breakdown by query type (blind judge)")
+    lines.append("### Breakdown by query type (blind judge)")
     lines.append("")
     lines.append("| Type | A / tie / B | B win-rate |")
     lines.append("|---|---|---|")
@@ -427,14 +635,14 @@ def render_markdown(
     )
     lines.append("")
 
-    lines.append("## Deep dive: why did Arm B sometimes do worse?")
+    lines.append("### Deep dive: why did Arm B sometimes do worse?")
     lines.append("")
     lines.append(
         "Two distinct, verified mechanisms explain this, and they cut in different directions for "
         "how much to trust the headline win-rate."
     )
     lines.append("")
-    lines.append("### 1. The judge itself is sometimes wrong (headline number is noisier than it looks)")
+    lines.append("#### 1. The judge itself is sometimes wrong (headline number is noisier than it looks)")
     lines.append("")
     lines.append(
         "Manual spot-check of a `flow` query Arm B \"lost\" (`rich-02`, repeat 1): the judge (o3) "
@@ -460,7 +668,7 @@ def render_markdown(
         "likely smaller than the raw 45.1% vs. 54.9% split suggests."
     )
     lines.append("")
-    lines.append("### 2. A real mechanism: over-trusting the graph as a complete answer")
+    lines.append("#### 2. A real mechanism: over-trusting the graph as a complete answer")
     lines.append("")
     lines.append(
         f"First, a sanity check on Arm B's setup itself: across all {tool_access['n']} successful "
@@ -514,7 +722,7 @@ def render_markdown(
     )
     lines.append("")
 
-    lines.append("## Efficiency")
+    lines.append("### Efficiency")
     lines.append("")
     lines.append(f"![efficiency]({chart_files[1]})" if len(chart_files) > 1 else "")
     lines.append("")
@@ -535,7 +743,7 @@ def render_markdown(
     lines.append(f"Total runs: {efficiency['n_total']}, failed: {efficiency['n_failed']}.")
     lines.append("")
 
-    lines.append("## Methodology notes / deviations from METRICS.md")
+    lines.append("### Methodology notes / deviations from METRICS.md")
     lines.append("")
     lines.append(
         "- **Answerer**: Codex CLI (`codex exec`, model `gpt-5-codex`), not a raw OpenAI chat "
