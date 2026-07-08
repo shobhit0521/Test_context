@@ -1,0 +1,133 @@
+<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>METRICS</title><style>
+:root{--fg:#1a1a2e;--muted:#6b7280;--accent:#2ca02c;--card:#f7f8fa;--border:#e5e7eb;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--fg);
+max-width:900px;margin:0 auto;padding:44px 26px;line-height:1.6}
+h1{font-size:30px;margin-bottom:2px}
+h2{margin-top:36px;border-bottom:2px solid var(--border);padding-bottom:6px}
+h3{margin-top:24px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f0f2f5}
+code{background:#f0f2f5;padding:2px 6px;border-radius:4px;font-size:13px}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow:auto}
+pre code{background:none;color:inherit;padding:0}
+blockquote{border-left:4px solid var(--accent);margin:0;padding:6px 16px;background:var(--card);
+border-radius:0 8px 8px 0}
+a{color:#2563eb}
+</style></head><body><h1 id="how-we-judge-better-evaluation-metrics">How we judge "better": evaluation metrics</h1>
+<p>This document defines exactly how the real-LLM evaluation decides whether the <strong>ContextAI
+MCP tools</strong> help. It is the scoring contract — fixed <em>before</em> running so results can't be
+cherry-picked.</p>
+<h2 id="the-experiment-in-one-picture">The experiment in one picture</h2>
+<p>For every one of the <strong>48 queries</strong> (12 across each of <code>flask</code>, <code>click</code>, <code>httpx</code>, <code>rich</code>),
+the <strong>same</strong> OpenAI model answers the <strong>same</strong> question <strong>twice</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>Tools the model can call</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A — Traditional</strong></td>
+<td><code>grep</code>, <code>read_file</code>, <code>list_dir</code></td>
+</tr>
+<tr>
+<td><strong>B — ContextAI + Traditional</strong></td>
+<td>the same tools <strong>plus</strong> ContextAI's MCP tools (<code>build_graph</code>, <code>find_node</code>, <code>get_context</code>, <code>get_edge_path</code>, …)</td>
+</tr>
+</tbody>
+</table>
+<p>The model is <strong>agentic</strong>: it decides which tools to call and when. Everything except the
+available tool set is identical between arms (same prompt, same model, same query).</p>
+<h2 id="what-we-measure-three-axes">What we measure (three axes)</h2>
+<h3 id="axis-1-answer-quality-llm-as-judge">Axis 1 — Answer quality (LLM-as-judge)</h3>
+<p>A separate <strong>judge model</strong> grades answers. Two complementary methods:</p>
+<ul>
+<li><strong>Blind pairwise preference (headline).</strong> The judge sees the question, a reference
+  answer key (when available), and the two answers with <strong>labels stripped and order
+  randomized</strong>. It picks <em>A wins / B wins / tie</em> with a reason.
+  → <strong>Headline number = Arm B win-rate over Arm A.</strong></li>
+<li><strong>Absolute rubric (0–3 each).</strong> Each answer is scored independently on:
+  | Criterion | Meaning |
+  |---|---|
+  | Correctness | no false statements about the code |
+  | Completeness | covers the real answer, not a fragment |
+  | Groundedness | claims cite real files/symbols that actually exist |</li>
+</ul>
+<p>→ per-answer quality = mean of the three (0–3).</p>
+<h3 id="axis-2-objective-correctness-no-judge-no-bias">Axis 2 — Objective correctness (no judge, no bias)</h3>
+<p>For the checkable query types — <strong>callers, callees, impact</strong> — we build a ground-truth
+<strong>answer key</strong> automatically (jedi + the code graph), then compare it to the set of
+symbols the model <em>states</em> as its answer:</p>
+<pre><code>precision = |model_answer ∩ key| / |model_answer|
+recall    = |model_answer ∩ key| / |key|
+F1        = 2·P·R / (P + R)
+</code></pre>
+<p>The model returns a small machine-readable list alongside its prose so this is scored
+exactly, not guessed.</p>
+<h3 id="axis-3-efficiency-no-judge">Axis 3 — Efficiency (no judge)</h3>
+<p>Per query, per arm, we log:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tool calls</td>
+<td>how many steps to the answer</td>
+</tr>
+<tr>
+<td>tokens (in/out)</td>
+<td>cost of reaching the answer</td>
+</tr>
+<tr>
+<td>files opened</td>
+<td>how much the agent had to read</td>
+</tr>
+<tr>
+<td>latency (s)</td>
+<td>wall-clock to answer</td>
+</tr>
+</tbody>
+</table>
+<p>Hypothesis: Arm B reaches a correct answer in <strong>fewer</strong> steps/tokens.</p>
+<h3 id="behavioral-descriptive">Behavioral (descriptive)</h3>
+<p>In Arm B we also record how often the model <em>chose</em> the ContextAI tools vs grep — if it
+ignores them, that's a finding too.</p>
+<h2 id="bias-controls-so-the-result-is-trustworthy">Bias controls (so the result is trustworthy)</h2>
+<ul>
+<li>Judge is <strong>blind</strong> to which arm produced an answer; answer order is <strong>randomized</strong>.</li>
+<li>Judge follows a <strong>fixed rubric</strong> and is given the objective answer key as reference.</li>
+<li><strong>Judge ≠ answerer</strong> (a different model instance) to avoid self-preference.</li>
+<li>Judge agreement is <strong>validated</strong> on a few hand-scored samples; agreement is reported.</li>
+<li>Ties are reported honestly; both pairwise and absolute scores are shown.</li>
+</ul>
+<h2 id="run-protocol-the-defaults">Run protocol (the defaults)</h2>
+<ul>
+<li><strong>Answerer:</strong> the strongest available OpenAI reasoning model (confirmed at run time).</li>
+<li><strong>Judge:</strong> a separate strong model instance, blind.</li>
+<li><strong>Repeats:</strong> each (query, arm) is run <strong>3×</strong> and averaged to reduce variance.</li>
+<li><strong>Budget:</strong> the agent loop is capped at 25 tool calls per query (safety bound).</li>
+<li>Total: 48 queries × 2 arms × 3 repeats = <strong>288 agent runs</strong>, then judged.</li>
+<li>The code graph for each repo is built once up front with the real <code>build_graph</code> tool.</li>
+</ul>
+<h2 id="what-better-looks-like-in-the-final-report">What "better" looks like in the final report</h2>
+<p>Arm B "wins" if it shows:
+1. a <strong>pairwise win-rate &gt; 50%</strong> over Arm A (higher-quality answers), <strong>and/or</strong>
+2. <strong>higher objective F1</strong> on callers/callees/impact, <strong>and/or</strong>
+3. <strong>lower effort</strong> (fewer tool calls / tokens) for equal-or-better quality.</p>
+<p>The strongest story — and the one we expect — is <strong>Arm B is at least as accurate while
+using meaningfully fewer steps</strong>, i.e. ContextAI makes the model both better and cheaper.</p>
+<h2 id="worked-scoring-example">Worked scoring example</h2>
+<p>Query <code>httpx-02</code> (callers of <code>Client._send_single_request</code>):
+- Answer key (jedi): <code>{_client.py::_send_single_request is called by _send_handling_redirects}</code>.
+- Model (Arm B) states: <code>{_send_handling_redirects}</code> → precision 1.0, recall 1.0, F1 1.0.
+- Model (Arm A) states: <code>{_send_handling_redirects, send}</code> (over-broad guess) → precision 0.5, recall 1.0, F1 0.67.
+- Efficiency: Arm B used 2 tool calls (<code>find_node</code> + <code>get_context</code>); Arm A used 6 (<code>grep</code> + 5 reads).
+- Judge (blind) prefers the B answer for being precise and grounded.</p></body></html>
