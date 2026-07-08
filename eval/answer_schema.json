@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Prose answer to the question, citing real files/symbols you found."
+    },
+    "symbols": {
+      "type": "array",
+      "description": "Structured list of functions/methods that make up your answer, for callers/callees/impact questions. Empty array if not applicable to this question type.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "File path relative to the project root (your current working directory), e.g. 'app.py' or 'sansio/app.py'."
+          },
+          "name": {
+            "type": "string",
+            "description": "Simple function or method name, e.g. 'wsgi_app' (not 'Flask.wsgi_app')."
+          }
+        },
+        "required": ["file", "name"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["answer", "symbols"],
+  "additionalProperties": false
+}

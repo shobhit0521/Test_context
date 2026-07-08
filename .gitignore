@@ -2,6 +2,8 @@
 eval/_repos/
 eval/_graphs/
 eval/results/
+# Isolated CODEX_HOME dirs used by the eval runner - contain auth.json (API key), never commit
+eval/_codex_home/
 # Note: eval/report/ (REPORT.md + charts) IS committed as the presentable deliverable.
 
 # Python
