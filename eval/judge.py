@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from openai import OpenAI
@@ -133,12 +134,18 @@ def judge_pair(question: str, gold: set[str] | None, answer_a: str, answer_b: st
     }
 
 
-def judge_all(queries: list[dict], repeats: int) -> list[dict]:
+def judge_all(queries: list[dict], repeats: int, concurrency: int = 6) -> list[dict]:
     RESULTS_JUDGED_DIR.mkdir(parents=True, exist_ok=True)
-    judged = []
+    judged: list[dict] = []
+    todo: list[tuple[dict, int, set | None, dict, dict]] = []
+
     for q in queries:
         gold = score_mod.ground_truth_for(q)
         for r in range(repeats):
+            out_path = RESULTS_JUDGED_DIR / f"{q['id']}__r{r}.json"
+            if out_path.exists():
+                judged.append(json.loads(out_path.read_text()))
+                continue
             path_a = RESULTS_RAW_DIR / f"{q['id']}__A__r{r}.json"
             path_b = RESULTS_RAW_DIR / f"{q['id']}__B__r{r}.json"
             if not (path_a.exists() and path_b.exists()):
@@ -147,17 +154,23 @@ def judge_all(queries: list[dict], repeats: int) -> list[dict]:
             raw_b = json.loads(path_b.read_text())
             if not (raw_a.get("ok") and raw_b.get("ok")):
                 continue
+            todo.append((q, r, gold, raw_a, raw_b))
 
-            out_path = RESULTS_JUDGED_DIR / f"{q['id']}__r{r}.json"
-            if out_path.exists():
-                judged.append(json.loads(out_path.read_text()))
-                continue
+    def _work(item):
+        q, r, gold, raw_a, raw_b = item
+        verdict = judge_pair(q["question"], gold, raw_a["answer"], raw_b["answer"])
+        record = {"query_id": q["id"], "repo": q["repo"], "type": q["type"], "repeat": r, **verdict}
+        out_path = RESULTS_JUDGED_DIR / f"{q['id']}__r{r}.json"
+        out_path.write_text(json.dumps(record, indent=2))
+        return record
 
-            verdict = judge_pair(q["question"], gold, raw_a["answer"], raw_b["answer"])
-            record = {"query_id": q["id"], "repo": q["repo"], "type": q["type"], "repeat": r, **verdict}
-            out_path.write_text(json.dumps(record, indent=2))
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(_work, item) for item in todo]
+        for fut in as_completed(futures):
+            record = fut.result()
             judged.append(record)
-            print(f"judged {q['id']} r{r}: winner={verdict['winner']}")
+            print(f"judged {record['query_id']} r{record['repeat']}: winner={record['winner']}")
+
     return judged
 
 

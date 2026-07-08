@@ -1,0 +1,145 @@
+<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>REPORT</title><style>
+:root{--fg:#1a1a2e;--muted:#6b7280;--accent:#2ca02c;--card:#f7f8fa;--border:#e5e7eb;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--fg);
+max-width:900px;margin:0 auto;padding:44px 26px;line-height:1.6}
+h1{font-size:30px;margin-bottom:2px}
+h2{margin-top:36px;border-bottom:2px solid var(--border);padding-bottom:6px}
+h3{margin-top:24px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f0f2f5}
+code{background:#f0f2f5;padding:2px 6px;border-radius:4px;font-size:13px}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow:auto}
+pre code{background:none;color:inherit;padding:0}
+blockquote{border-left:4px solid var(--accent);margin:0;padding:6px 16px;background:var(--card);
+border-radius:0 8px 8px 0}
+a{color:#2563eb}
+</style></head><body><h1 id="contextai-vs-traditional-tools-codex-agentic-evaluation-results">ContextAI vs. traditional tools — Codex agentic evaluation results</h1>
+<p>Real-LLM evaluation: the <a href="https://developers.openai.com/codex">Codex CLI</a> (<code>codex exec</code>, model <code>gpt-5-codex</code>) answers the same code-understanding questions twice per query — once with its native tools only (<strong>Arm A</strong>), once with the same tools <strong>plus the ContextAI <code>contextai-graph</code> MCP server</strong> (<strong>Arm B</strong>). Codex decides itself which tools to call. See <a href="METRICS.md"><code>METRICS.md</code></a> for the full scoring contract.</p>
+<h2 id="headline-blind-judge-win-rate">Headline: blind judge win-rate</h2>
+<p>Arm B win-rate over Arm A (ties = 0.5): <strong>45.1%</strong> across 144 judged queries — A wins 50, ties 58, B wins 36.</p>
+<p><img alt="quality" src="quality.png" /></p>
+<h2 id="objective-correctness-callers-callees-impact">Objective correctness (callers / callees / impact)</h2>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>n</th>
+<th>mean F1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>87</td>
+<td>0.740</td>
+</tr>
+<tr>
+<td>B</td>
+<td>87</td>
+<td>0.745</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Query type</th>
+<th>Arm A F1</th>
+<th>Arm B F1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>callees</td>
+<td>0.805</td>
+<td>0.797</td>
+</tr>
+<tr>
+<td>callers</td>
+<td>0.844</td>
+<td>0.831</td>
+</tr>
+<tr>
+<td>impact</td>
+<td>0.520</td>
+<td>0.565</td>
+</tr>
+</tbody>
+</table>
+<h2 id="absolute-rubric-0-3-per-axis-judge-scored">Absolute rubric (0-3 per axis, judge-scored)</h2>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>Correctness</th>
+<th>Completeness</th>
+<th>Groundedness</th>
+<th>Mean</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>2.62</td>
+<td>2.59</td>
+<td>2.84</td>
+<td>2.69</td>
+</tr>
+<tr>
+<td>B</td>
+<td>2.57</td>
+<td>2.48</td>
+<td>2.85</td>
+<td>2.63</td>
+</tr>
+</tbody>
+</table>
+<h2 id="efficiency">Efficiency</h2>
+<p><img alt="efficiency" src="efficiency.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>n</th>
+<th>mean tool calls</th>
+<th>mean MCP calls</th>
+<th>mean input tokens</th>
+<th>mean output tokens</th>
+<th>mean latency (s)</th>
+<th>% used ContextAI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>144</td>
+<td>14.4</td>
+<td>0.0</td>
+<td>177898</td>
+<td>2734</td>
+<td>42.0</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>B</td>
+<td>144</td>
+<td>13.8</td>
+<td>10.0</td>
+<td>300852</td>
+<td>2534</td>
+<td>44.1</td>
+<td>100%</td>
+</tr>
+</tbody>
+</table>
+<p>Total runs: 288, failed: 0.</p>
+<h2 id="methodology-notes-deviations-from-metricsmd">Methodology notes / deviations from METRICS.md</h2>
+<ul>
+<li><strong>Answerer</strong>: Codex CLI (<code>codex exec</code>, model <code>gpt-5-codex</code>), not a raw OpenAI chat completion — chosen so the comparison reflects a real, widely-used coding agent rather than a custom-built minimal tool loop.</li>
+<li><strong>Judge</strong>: <code>o3</code> (a distinct OpenAI model from the answerer), blind, pairwise order randomized, given the objective answer key as reference when available.</li>
+<li><strong>Sandbox</strong>: both arms run with <code>--dangerously-bypass-approvals-and-sandbox</code>. Codex's non-interactive mode currently auto-cancels MCP tool call approvals instead of allowing them (see <a href="https://github.com/openai/codex/issues/24135">openai/codex#24135</a>), so Arm B needs the bypass to use ContextAI at all; it is applied uniformly to Arm A too so the <em>only</em> difference between arms is tool availability, not sandboxing. This is a contained, documented trade-off: read-oriented questions against pinned, throwaway clones.</li>
+<li><strong>Tool-call budget</strong>: METRICS.md specifies a 25-tool-call cap; the Codex CLI has no native per-run tool-call limit, so a wall-clock timeout is used instead as the safety bound.</li>
+<li>ContextAI is only ever accessed by Codex itself (via the <code>contextai-graph</code> MCP server registered in Codex's own config) — never by the harness's orchestration code directly.</li>
+</ul></body></html>
