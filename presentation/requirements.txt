@@ -1,0 +1,4 @@
+# Presentation deck build dependencies.
+# matplotlib is already pinned in the repo root requirements.txt.
+python-pptx==1.0.2
+Pillow==12.3.0
