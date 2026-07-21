@@ -1,19 +1,34 @@
 # Presentation deck
 
-A non-technical, visual slide deck covering the ContextAI evaluation: what a
-code graph is, how it was connected to a real AI coding agent via MCP, how
-testing was done, what the results were, and a closing reflection on how the
+A non-technical, dense, visual slide deck (13 slides) covering the **whole**
+project, not just this repo. There are three connected projects:
+
+- **[ContextAI](https://github.com/shobhit0521/ContextAI)** — the graph-extraction
+  engine (AST + framework-convention detection + optional runtime tracing,
+  merged into one typed knowledge graph of the codebase).
+- **[ConnectContext](https://github.com/shobhit0521/ConnectContext)** (published
+  on PyPI as `contextai-mcp`) — the MCP server that exposes ContextAI's graph
+  as tools any MCP-speaking AI client (Claude, Cursor, Codex, ...) can call.
+- **Test_context** (this repo) — the evaluation of whether that combination
+  actually helps a real coding agent (Codex) answer code-understanding
+  questions better.
+
+The deck walks through what each project does, how they connect, how testing
+was done, what the results were, and closes with a reflection on how the
 original motivation for this kind of tool has shifted as AI models have
 grown more capable.
 
 ## Files
 
-- `ContextAI_Evaluation.pptx` — the deck itself (26 slides). Open in
-  PowerPoint, Keynote, Google Slides, or LibreOffice Impress.
+- `ContextAI_Evaluation.pptx` — the deck itself (13 dense slides, ~2/page of
+  content each). Open in PowerPoint, Keynote, Google Slides, or LibreOffice
+  Impress.
 - `build_deck.py` — generates the deck. Run `python3 build_deck.py` to
   rebuild it (also regenerates all image assets first).
-- `make_diagrams.py` — generates the conceptual diagrams (the "map vs. no
-  map" illustration, the MCP connection diagram, the pipeline flow, etc.).
+- `make_diagrams.py` — generates the conceptual diagrams: the "map vs. no
+  map" illustration, the three-projects overview, ContextAI's extraction
+  pipeline, ConnectContext's tool tiers, the MCP connection diagram, the
+  testing pipeline, and the grading methodology.
 - `make_charts.py` — generates simplified, plain-language versions of the
   result charts from `eval/report/REPORT.md`, sized and labeled for a
   presentation rather than a technical report.

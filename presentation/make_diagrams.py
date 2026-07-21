@@ -113,33 +113,6 @@ def diagram_search_vs_map():
     plt.close(fig)
 
 
-def diagram_graph_capabilities():
-    """Slide: what the map actually captures."""
-    fig, ax = _new_fig()
-    ax.text(6.665, 6.95, "What goes into the map", ha="center", fontsize=24, weight="bold", color=NAVY)
-
-    items = [
-        ("Every function\n& class", "Where each\none lives, and\nwhat it's called"),
-        ("Who calls\nwhom", "The connections\nbetween\nfunctions"),
-        ("What each\npiece does", "Inputs, outputs,\nerror handling,\ncomplexity"),
-        ("What's\nuncertain", "Honestly flags\ncalls it couldn't\nresolve for sure"),
-    ]
-    xs = [0.7, 3.85, 7.0, 10.15]
-    colors = [GREEN, BLUE, AMBER, "#9333ea"]
-    for (title, desc), x, c in zip(items, xs, colors):
-        _box(ax, x, 3.9, 2.5, 1.9, title, fc=c, ec=c, fontsize=14.5, fontcolor="white", weight="bold")
-        ax.text(x + 1.25, 3.35, desc, ha="center", va="top", fontsize=11.8, color="#444444")
-
-    ax.text(6.665, 1.3,
-            "Built once per project, by reading the code carefully —\n"
-            "without ever running it — the same way a very fast, very careful new hire would.",
-            ha="center", va="center", fontsize=13.5, color=NAVY, style="italic")
-
-    fig.tight_layout()
-    fig.savefig(ASSETS / "graph_capabilities.png", dpi=170, bbox_inches="tight")
-    plt.close(fig)
-
-
 def diagram_two_modes():
     """Slide: Arm A vs Arm B, in plain language."""
     fig, ax = _new_fig()
@@ -260,11 +233,94 @@ def diagram_grading():
     plt.close(fig)
 
 
+def diagram_three_repos():
+    """Slide: the three connected projects that make up the whole thing."""
+    fig, ax = _new_fig()
+    ax.text(6.665, 6.95, "Three projects, one pipeline", ha="center", fontsize=24, weight="bold", color=NAVY)
+
+    _box(ax, 0.5, 3.5, 3.5, 2.1, "ContextAI", fc=GREEN, ec=GREEN, fontsize=18, fontcolor="white")
+    ax.text(2.25, 3.15, "The engine.\nReads (and optionally runs)\ncode, builds the graph.", ha="center", va="top",
+            fontsize=11.3, color="#444444")
+
+    _arrow(ax, (4.05, 4.55), (4.85, 4.55), color=NAVY, lw=3)
+
+    _box(ax, 4.95, 3.5, 3.5, 2.1, "ConnectContext", fc=BLUE, ec=BLUE, fontsize=17, fontcolor="white")
+    ax.text(6.7, 3.15, "The bridge.\nPublished as \u201ccontextai-mcp,\u201d\nhands the graph to any AI.", ha="center",
+            va="top", fontsize=11.3, color="#444444")
+
+    _arrow(ax, (8.5, 4.55), (9.3, 4.55), color=NAVY, lw=3)
+
+    _box(ax, 9.4, 3.5, 3.3, 2.1, "An AI coding\nassistant", fc=NAVY, ec=NAVY, fontsize=15.5, fontcolor="white")
+    ax.text(11.05, 3.15, "Claude, Cursor, Codex\u2014\nany tool that speaks MCP.", ha="center", va="top",
+            fontsize=11.3, color="#444444")
+
+    ax.text(6.665, 1.95, "This evaluation (\u201cTest_context\u201d) is the fourth piece: it wires all three together\n"
+                          "and measures whether the combination actually helps the AI.",
+            ha="center", va="center", fontsize=13.5, color=AMBER, weight="bold")
+
+    fig.tight_layout()
+    fig.savefig(ASSETS / "three_repos.png", dpi=170, bbox_inches="tight")
+    plt.close(fig)
+
+
+def diagram_graph_pipeline():
+    """Slide: ContextAI's real 3-pass pipeline that builds the graph."""
+    fig, ax = _new_fig()
+    ax.text(6.665, 6.95, "How ContextAI actually builds the map", ha="center", fontsize=23, weight="bold", color=NAVY)
+
+    passes = [
+        ("Pass 1\nRead the code", "Every function, class & call site\n(Python's own AST)", GREEN),
+        ("Pass 2\nSpot the patterns", "Web routes, database tables,\ntemplates, cache calls", BLUE),
+        ("Pass 3\nWatch it run\n(optional)", "Traces real execution to catch\nwhat reading alone can't", AMBER),
+    ]
+    xs = [0.6, 4.75, 8.9]
+    for (title, desc, color), x in zip(passes, xs):
+        _box(ax, x, 4.1, 3.5, 1.7, title, fc=color, ec=color, fontsize=14, fontcolor="white", weight="bold")
+        ax.text(x + 1.75, 3.55, desc, ha="center", va="top", fontsize=11.3, color="#444444")
+        if x != xs[-1]:
+            _arrow(ax, (x + 3.55, 4.95), (x + 4.15, 4.95), color="#999999", lw=2.4)
+
+    ax.add_patch(plt.Circle((6.665, 2.15), 0.02, alpha=0))  # spacer
+    _arrow(ax, (6.665, 3.4), (6.665, 2.75), color="#999999", lw=2.4, connectionstyle="arc3,rad=0")
+    _box(ax, 4.9, 1.55, 3.5, 1.05, "One merged, typed\nknowledge graph", fc="#9333ea", ec="#9333ea",
+         fontsize=13.5, fontcolor="white", weight="bold")
+
+    fig.tight_layout()
+    fig.savefig(ASSETS / "graph_pipeline.png", dpi=170, bbox_inches="tight")
+    plt.close(fig)
+
+
+def diagram_tool_tiers():
+    """Slide: ConnectContext's stable vs experimental tool tiers."""
+    fig, ax = _new_fig()
+    ax.text(6.665, 6.95, "The toolbox ConnectContext hands the AI", ha="center", fontsize=23, weight="bold", color=NAVY)
+
+    _box(ax, 0.7, 3.7, 5.6, 2.3, "6 safe, read-only tools", fc=GREEN, ec=GREEN, fontsize=17, fontcolor="white")
+    ax.text(3.5, 3.1, "Build the map, search it, look up a function's\nneighborhood, check a direct link, and honestly\n"
+                      "list what it couldn't figure out. Never changes\nor runs your code.",
+            ha="center", va="top", fontsize=11.5, color="#444444")
+
+    _box(ax, 6.95, 3.7, 5.6, 2.3, "2 more powerful,\nriskier tools", fc=AMBER, ec=AMBER, fontsize=17, fontcolor="white")
+    ax.text(9.75, 3.1, "Actually run the code in a sandbox to see what\nreally happens \u2014 useful, but only for code you\n"
+                       "trust. We didn't use these in this test.",
+            ha="center", va="top", fontsize=11.5, color="#444444")
+
+    ax.text(6.665, 1.55, "Published on PyPI as \u201ccontextai-mcp\u201d \u2014 any AI tool can install it with one command,\n"
+                         "no manual setup.",
+            ha="center", va="center", fontsize=13, color="#555555", style="italic")
+
+    fig.tight_layout()
+    fig.savefig(ASSETS / "tool_tiers.png", dpi=170, bbox_inches="tight")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     diagram_search_vs_map()
-    diagram_graph_capabilities()
     diagram_two_modes()
     diagram_mcp_connection()
     diagram_pipeline()
     diagram_grading()
+    diagram_three_repos()
+    diagram_graph_pipeline()
+    diagram_tool_tiers()
     print("Diagrams written to", ASSETS)
