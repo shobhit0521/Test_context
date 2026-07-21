@@ -242,19 +242,26 @@ def slide_three_repos(prs):
 def slide_contextai(prs):
     slide = add_content_slide(prs, "Project 1: ContextAI \u2014 the engine", accent=GREEN,
                                part="2 \u00b7 THE THREE PROJECTS")
-    add_picture_fit(slide, ASSETS / "graph_pipeline.png", Inches(0.4), Inches(1.55), Inches(8.0), Inches(5.5))
-    _add_bullets(slide, Inches(8.6), Inches(1.85), Inches(4.4), Inches(5.0), [
-        "Each function/class becomes a rich node: its code, inputs/outputs, error handling, complexity, even test coverage & git history.",
-        "Each connection becomes a typed edge (calls, imports, reads/writes data, and more), with how critical and how likely-to-fail it is.",
-        "Alpha stage, but backed by 150+ automated tests.",
-    ], size=14.5, spacing_after=10)
+    add_picture_fit(slide, ASSETS / "graph_pipeline.png", Inches(0.3), Inches(1.5), Inches(9.35), Inches(5.65))
+    _add_bullets(slide, Inches(9.75), Inches(1.85), Inches(3.2), Inches(5.0), [
+        "Each function becomes a rich node: code, signature, error handling, complexity, test coverage, git history.",
+        "Each connection becomes a typed edge, with how critical and how likely-to-fail it is.",
+        "Alpha stage; backed by 150+ automated tests.",
+    ], size=15.5, spacing_after=14)
     return slide
 
 
 def slide_connectcontext(prs):
     slide = add_content_slide(prs, "Project 2: ConnectContext \u2014 the bridge", accent=BLUE,
                                part="2 \u00b7 THE THREE PROJECTS")
-    add_picture_fit(slide, ASSETS / "tool_tiers.png", Inches(0.4), Inches(1.55), Inches(12.5), Inches(5.5))
+    add_picture_fit(slide, ASSETS / "tool_tiers.png", Inches(0.4), Inches(1.5), Inches(12.5), Inches(5.75))
+    return slide
+
+
+def slide_functions_exposed(prs):
+    slide = add_content_slide(prs, "The functions ContextAI actually exposes", accent=GREEN,
+                               part="2 \u00b7 THE THREE PROJECTS", title_size=26)
+    add_picture_fit(slide, ASSETS / "functions_exposed.png", Inches(0.3), Inches(1.5), Inches(12.7), Inches(5.75))
     return slide
 
 
@@ -293,10 +300,15 @@ def slide_mcp_and_hiccups(prs):
     return slide
 
 
-def slide_pipeline_and_grading(prs):
-    slide = add_content_slide(prs, "How we ran it, and how we graded it", part="3 \u00b7 TESTING")
-    add_picture_fit(slide, ASSETS / "pipeline.png", Inches(0.4), Inches(1.5), Inches(12.5), Inches(2.85))
-    add_picture_fit(slide, ASSETS / "grading.png", Inches(0.4), Inches(4.35), Inches(12.5), Inches(2.85))
+def slide_pipeline(prs):
+    slide = add_content_slide(prs, "How we ran it, end to end", part="3 \u00b7 TESTING")
+    add_picture_fit(slide, ASSETS / "pipeline.png", Inches(0.4), Inches(1.5), Inches(12.5), Inches(5.75))
+    return slide
+
+
+def slide_grading(prs):
+    slide = add_content_slide(prs, "How we graded every answer", part="3 \u00b7 TESTING")
+    add_picture_fit(slide, ASSETS / "grading.png", Inches(0.4), Inches(1.5), Inches(12.5), Inches(5.75))
     return slide
 
 
@@ -397,9 +409,11 @@ def main():
     slide_three_repos(prs)
     slide_contextai(prs)
     slide_connectcontext(prs)
+    slide_functions_exposed(prs)
     slide_what_we_built(prs)
     slide_mcp_and_hiccups(prs)
-    slide_pipeline_and_grading(prs)
+    slide_pipeline(prs)
+    slide_grading(prs)
     slide_results_headline_and_project(prs)
     slide_results_cost(prs)
     slide_why(prs)

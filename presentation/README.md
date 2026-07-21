@@ -1,6 +1,6 @@
 # Presentation deck
 
-A non-technical, dense, visual slide deck (13 slides) covering the **whole**
+A non-technical, dense, visual slide deck (15 slides) covering the **whole**
 project, not just this repo. There are three connected projects:
 
 - **[ContextAI](https://github.com/shobhit0521/ContextAI)** — the graph-extraction
@@ -20,15 +20,18 @@ grown more capable.
 
 ## Files
 
-- `ContextAI_Evaluation.pptx` — the deck itself (13 dense slides, ~2/page of
-  content each). Open in PowerPoint, Keynote, Google Slides, or LibreOffice
-  Impress.
+- `ContextAI_Evaluation.pptx` — the deck itself (15 dense slides). Open in
+  PowerPoint, Keynote, Google Slides, or LibreOffice Impress.
 - `build_deck.py` — generates the deck. Run `python3 build_deck.py` to
   rebuild it (also regenerates all image assets first).
 - `make_diagrams.py` — generates the conceptual diagrams: the "map vs. no
   map" illustration, the three-projects overview, ContextAI's extraction
-  pipeline, ConnectContext's tool tiers, the MCP connection diagram, the
-  testing pipeline, and the grading methodology.
+  pipeline, the actual functions ContextAI/ConnectContext expose,
+  ConnectContext's tool tiers, the MCP connection diagram, the testing
+  pipeline, and the grading methodology. Each diagram's canvas size and
+  font sizes are tuned to how large it's actually displayed on its slide
+  (a diagram squeezed into a small slide region needs bigger source fonts,
+  or it renders too small — this bit us once and is now fixed).
 - `make_charts.py` — generates simplified, plain-language versions of the
   result charts from `eval/report/REPORT.md`, sized and labeled for a
   presentation rather than a technical report.
