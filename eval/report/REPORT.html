@@ -1,0 +1,311 @@
+<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>REPORT</title><style>
+:root{--fg:#1a1a2e;--muted:#6b7280;--accent:#2ca02c;--card:#f7f8fa;--border:#e5e7eb;}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--fg);
+max-width:900px;margin:0 auto;padding:44px 26px;line-height:1.6}
+h1{font-size:30px;margin-bottom:2px}
+h2{margin-top:36px;border-bottom:2px solid var(--border);padding-bottom:6px}
+h3{margin-top:24px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f0f2f5}
+code{background:#f0f2f5;padding:2px 6px;border-radius:4px;font-size:13px}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow:auto}
+pre code{background:none;color:inherit;padding:0}
+blockquote{border-left:4px solid var(--accent);margin:0;padding:6px 16px;background:var(--card);
+border-radius:0 8px 8px 0}
+a{color:#2563eb}
+</style></head><body><h1 id="contextai-vs-traditional-tools-codex-agentic-evaluation-results">ContextAI vs. traditional tools — Codex agentic evaluation results</h1>
+<p>Real-LLM evaluation: the <a href="https://developers.openai.com/codex">Codex CLI</a> (<code>codex exec</code>, model <code>gpt-5-codex</code>) answers the same code-understanding questions twice per query — once with its native tools only (<strong>Arm A</strong>), once with the same tools <strong>plus the ContextAI <code>contextai-graph</code> MCP server</strong> (<strong>Arm B</strong>). Codex decides itself which tools to call. See <a href="METRICS.md"><code>METRICS.md</code></a> for the full scoring contract.</p>
+<h2 id="1-what-we-built">1. What we built</h2>
+<p>The question this evaluation answers: <strong>does giving a real coding agent access to ContextAI's code-graph MCP tools make it better at understanding code</strong>, compared to the same agent using only its own native tools? We built a full, reproducible harness to answer this with real agent runs rather than a hand-wavy comparison.</p>
+<p>The harness has five stages, each a standalone script under <code>eval/</code>:</p>
+<ol>
+<li><strong>Fetch</strong> (<code>fetch.py</code>) — clone and pin four real, widely-used open-source Python projects at fixed release tags: <code>flask</code> (9k LOC), <code>click</code> (10k LOC), <code>httpx</code> (9k LOC), and <code>rich</code> (26k LOC). Pinned versions mean results are reproducible — the code under test can't drift.</li>
+<li><strong>Build graphs</strong> (<code>build_graphs.py</code>) — for each repo, have Codex itself call ContextAI's <code>build_graph</code> tool once, up front (see §3).</li>
+<li><strong>Run</strong> (<code>codex_runner.py</code> / <code>run_codex.py</code>) — for each of 48 hand-written code-understanding questions (12 per repo, across 6 question types — see §4), run the real <strong>Codex CLI</strong> twice: once with only its native tools (<strong>Arm A</strong>), once with the same tools plus ContextAI's MCP server (<strong>Arm B</strong>). Each (question, arm) pair is repeated 3x to smooth out model randomness, for 288 total agent runs.</li>
+<li><strong>Score</strong> (<code>score.py</code>) — for questions with an objectively checkable answer ("who calls X"), compute precision/recall/F1 against ground truth computed independently with <code>jedi</code> (real static analysis, unrelated to ContextAI).</li>
+<li><strong>Judge</strong> (<code>judge.py</code>) — for every question, a separate LLM judge blindly compares the Arm A and Arm B answers (order randomized, labels hidden) and picks a winner, plus scores each on a 0-3 rubric.</li>
+</ol>
+<p>One design principle held throughout the whole harness: <strong>ContextAI is only ever touched by Codex itself</strong> — the tool actually under evaluation. None of our own orchestration code calls the ContextAI MCP server directly (not even to build the graphs); every single interaction with it happens because Codex, acting as an agent, decided to call it.</p>
+<h2 id="2-the-contextai-code-graph-what-it-is-and-why-it-should-help">2. The ContextAI code graph — what it is and why it should help</h2>
+<p>Most code-understanding questions — "who calls this function," "what does this call," "what breaks if I change this," "trace this request end to end" — are really <strong>graph traversal questions</strong> over the codebase's call structure. An agent using only grep/read has to reconstruct that structure by hand: search for a name, open each hit, mentally note which function it's inside, repeat. ContextAI's <code>build_graph</code> tool does that reconstruction once, up front, via static analysis, and hands the agent a queryable structure instead.</p>
+<p>Concretely, <code>build_graph(project_root, output)</code> walks a Python project and produces a JSON graph:</p>
+<ul>
+<li><strong>Nodes</strong> — one per function, method, class, file, or external library, each carrying an id (e.g. <code>app.py::Flask::wsgi_app</code>), its type, source location, and — for functions — rich metadata: full source, signature, side effects (e.g. <code>EMITS_EVENT</code>), error handling (<code>has_try_catch</code>, <code>catches</code>), cyclomatic complexity, test coverage, and even version/git history.</li>
+<li><strong>Edges</strong> — typed relationships between nodes: <code>CALLS</code>, <code>CONTAINS</code> (class → method), <code>IMPORTS</code>, <code>RETURNS</code>, each with a criticality rating and whether it's confirmed only statically or also seen at runtime.</li>
+<li><strong>Gaps</strong> — the graph is honest about what static analysis can't resolve. A <code>list_gaps</code> tool reports <code>unresolved_calls</code> and <code>dynamic_gaps</code> (decorators, dynamic dispatch, registry lookups) per node — cases a purely static pass can miss. This turns out to matter a lot for our results (see "Deep dive" in §5 below).</li>
+</ul>
+<p>Once built, the graph is queried through four read tools: <code>find_node</code> (search by name), <code>get_context</code> (a node plus its neighbors/edges, with source code attached), <code>get_edge_path</code> (the direct relationship between two specific nodes), and <code>list_gaps</code>. We built the graph <strong>once per repo</strong>, not per question, since static analysis is comparatively expensive and the codebase doesn't change between questions.</p>
+<h2 id="3-how-the-mcp-server-was-built-and-connected">3. How the MCP server was built and connected</h2>
+<p>ContextAI ships as <code>contextai-mcp</code>, a Python package implementing a real <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server that speaks over stdio — the same protocol Cursor, Claude Code, and Codex all support natively for extending an agent with custom tools. We installed it via <code>pip install contextai-mcp contextai-graph</code> (pinned versions in <code>requirements.txt</code>) and connected it to Codex exactly the way a real user would: as a registered MCP server, not through any special integration code.</p>
+<p><strong>Connecting it to Codex.</strong> Codex CLI reads MCP server definitions from <code>config.toml</code>:</p>
+<pre><code class="language-toml">[mcp_servers.contextai-graph]
+command = &quot;python3&quot;
+args = [&quot;-m&quot;, &quot;contextai_mcp&quot;]
+cwd = &quot;/workspace/eval&quot;
+</code></pre>
+<p>We registered this with <code>codex mcp add contextai-graph -- python3 -m contextai_mcp</code>. Once registered, Codex spawns the server as a subprocess at session start and can call any of its tools (<code>build_graph</code>, <code>find_node</code>, <code>get_context</code>, <code>get_edge_path</code>, <code>list_gaps</code>, plus <code>load_graph</code>/<code>run_trace</code>/<code>merge_trace</code>, which we didn't need for these read-only questions) exactly like its own built-in tools.</p>
+<p><strong>Isolating the two arms.</strong> To make the comparison clean, we created two completely separate <code>CODEX_HOME</code> directories (Codex's config/auth root, normally <code>~/.codex</code>) — <code>_codex_home/no_mcp</code> for Arm A and <code>_codex_home/with_mcp</code> for Arm B — each independently authenticated. <code>contextai-graph</code> is registered in the <code>with_mcp</code> config only. This means the <em>only</em> difference between what Arm A and Arm B can do is the presence of this one MCP server; model, sandbox policy, approval settings, and prompt are byte-for-byte identical.</p>
+<p><strong>A real bug we found and fixed.</strong> The MCP server subprocess (<code>python3 -m contextai_mcp</code>) is a <code>python -m</code> invocation, which Python resolves by adding the <em>current working directory</em> to <code>sys.path[0]</code>. If that cwd is inside a target repo, and the repo happens to ship a file with the same name as a stdlib module, the import gets silently hijacked. Flask ships <code>src/flask/typing.py</code> — so running the MCP server with its cwd inside Flask's source tree breaks the import of the real stdlib <code>typing</code> module and crashes the server on startup (<code>AttributeError: partially initialized module 'typing' has no attribute 'TYPE_CHECKING'</code>). We fixed this by pinning the server's own <code>cwd</code> to <code>eval/</code> (via the <code>cwd</code> key shown above), which never collides with a target repo's module names — while Codex's own agent loop still runs with its working root inside the target repo as normal, unaffected.</p>
+<p><strong>A real CLI limitation we worked around.</strong> Codex's non-interactive mode (<code>codex exec</code>) currently requires interactive approval for MCP tool calls, which can't be granted headlessly and so auto-cancels by default — a known open issue (<a href="https://github.com/openai/codex/issues/24135">openai/codex#24135</a>). We used <code>--dangerously-bypass-approvals-and-sandbox</code> to work around this, applied identically to <em>both</em> arms (not just Arm B), so reduced sandboxing isn't a hidden confound — only tool availability differs between arms. This is a contained, disclosed trade-off: read-oriented questions against pinned, throwaway repo clones, not untrusted external input.</p>
+<h2 id="4-how-testing-was-done">4. How testing was done</h2>
+<p><strong>Questions.</strong> 48 hand-written, symbol-grounded questions, 12 per repo, spanning six reasoning types: <code>callers</code> (reverse edges), <code>callees</code> (forward edges), <code>flow</code> (multi-hop execution tracing), <code>impact</code> (blast-radius / transitive reverse reachability), <code>definition</code> (where/how something is defined), and <code>feature</code> (how a cross-cutting concern works across modules). The first three types (<code>callers</code>/<code>callees</code>/<code>impact</code>) have an objective, checkable answer; all six are judged.</p>
+<p><strong>Running each question.</strong> For every <code>(question, arm, repeat)</code> combination, we invoke <code>codex exec</code> with Codex's working directory set to the target repo's source root, and a JSON-schema-constrained final response so Codex must return a prose <code>answer</code> plus — for objectively-scorable questions — a structured <code>symbols</code> list (<code>{file, name}</code> pairs). This gets us exact, parseable answers instead of scraping free text. Every run's full raw tool-call transcript (every tool called, its arguments, and its result) and every field of its final answer are saved to disk.</p>
+<p><strong>Scoring, two independent ways.</strong> Objective scoring compares Codex's structured symbol list against ground truth computed by <code>jedi</code> (real static analysis, run independently of both ContextAI and Codex) via precision/recall/F1. Subjective scoring uses a <strong>separate</strong> LLM (<code>o3</code>, a different model from the <code>gpt-5-codex</code> answerer, to avoid a model preferring its own style) as a blind judge: it sees the question, the reference answer key when available, and both answers with <strong>labels stripped and order randomized</strong>, then picks a winner and scores each 0-3 on correctness/completeness/groundedness.</p>
+<p><strong>Scale.</strong> 48 questions x 2 arms x 3 repeats = 288 agent runs, plus 144 judge calls (one per question/repeat pair, each comparing both arms at once). All runs completed with <strong>zero failures</strong>. The full pipeline is reproducible end to end via <code>make eval</code>.</p>
+<hr />
+<h2 id="5-test-results">5. Test results</h2>
+<h3 id="headline-blind-judge-win-rate">Headline: blind judge win-rate</h3>
+<p>Arm B win-rate over Arm A (ties = 0.5): <strong>45.1%</strong> across 144 judged queries — A wins 50, ties 58, B wins 36.</p>
+<p><img alt="quality" src="quality.png" /></p>
+<h3 id="objective-correctness-callers-callees-impact">Objective correctness (callers / callees / impact)</h3>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>n</th>
+<th>mean F1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>87</td>
+<td>0.740</td>
+</tr>
+<tr>
+<td>B</td>
+<td>87</td>
+<td>0.745</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Query type</th>
+<th>Arm A F1</th>
+<th>Arm B F1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>callees</td>
+<td>0.805</td>
+<td>0.797</td>
+</tr>
+<tr>
+<td>callers</td>
+<td>0.844</td>
+<td>0.831</td>
+</tr>
+<tr>
+<td>impact</td>
+<td>0.520</td>
+<td>0.565</td>
+</tr>
+</tbody>
+</table>
+<h3 id="absolute-rubric-0-3-per-axis-judge-scored">Absolute rubric (0-3 per axis, judge-scored)</h3>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>Correctness</th>
+<th>Completeness</th>
+<th>Groundedness</th>
+<th>Mean</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>2.62</td>
+<td>2.59</td>
+<td>2.84</td>
+<td>2.69</td>
+</tr>
+<tr>
+<td>B</td>
+<td>2.57</td>
+<td>2.48</td>
+<td>2.85</td>
+<td>2.63</td>
+</tr>
+</tbody>
+</table>
+<h3 id="breakdown-by-repo">Breakdown by repo</h3>
+<p>The headline numbers average over all 4 repos; per-repo results vary more than the average suggests, and no single repo shows Arm B clearly ahead — including <code>rich</code>, the largest/most complex codebase, where a code graph would intuitively help the most.</p>
+<p><img alt="by_repo" src="by_repo.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>Judge: A / tie / B</th>
+<th>B win-rate</th>
+<th>F1 (A)</th>
+<th>F1 (B)</th>
+<th>Rubric (A)</th>
+<th>Rubric (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>click</td>
+<td>13 / 14 / 9</td>
+<td>44%</td>
+<td>0.460</td>
+<td>0.432</td>
+<td>2.56</td>
+<td>2.54</td>
+</tr>
+<tr>
+<td>flask</td>
+<td>9 / 19 / 8</td>
+<td>49%</td>
+<td>0.989</td>
+<td>0.973</td>
+<td>2.78</td>
+<td>2.73</td>
+</tr>
+<tr>
+<td>httpx</td>
+<td>13 / 12 / 11</td>
+<td>47%</td>
+<td>0.864</td>
+<td>0.864</td>
+<td>2.82</td>
+<td>2.81</td>
+</tr>
+<tr>
+<td>rich</td>
+<td>15 / 13 / 8</td>
+<td>40%</td>
+<td>0.657</td>
+<td>0.714</td>
+<td>2.58</td>
+<td>2.46</td>
+</tr>
+</tbody>
+</table>
+<h3 id="breakdown-by-query-type-blind-judge">Breakdown by query type (blind judge)</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>A / tie / B</th>
+<th>B win-rate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>callees</td>
+<td>5 / 21 / 7</td>
+<td>53%</td>
+</tr>
+<tr>
+<td>callers</td>
+<td>11 / 12 / 7</td>
+<td>43%</td>
+</tr>
+<tr>
+<td>definition</td>
+<td>4 / 4 / 4</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>feature</td>
+<td>7 / 9 / 5</td>
+<td>45%</td>
+</tr>
+<tr>
+<td>flow</td>
+<td>14 / 3 / 7</td>
+<td>35%</td>
+</tr>
+<tr>
+<td>impact</td>
+<td>9 / 9 / 6</td>
+<td>44%</td>
+</tr>
+</tbody>
+</table>
+<p>Notably, <code>flow</code> (multi-hop execution tracing) — the type where a pre-built call graph should intuitively help most — has Arm B's <em>lowest</em> win-rate of any type.</p>
+<h3 id="deep-dive-why-did-arm-b-sometimes-do-worse">Deep dive: why did Arm B sometimes do worse?</h3>
+<p>Two distinct, verified mechanisms explain this, and they cut in different directions for how much to trust the headline win-rate.</p>
+<h4 id="1-the-judge-itself-is-sometimes-wrong-headline-number-is-noisier-than-it-looks">1. The judge itself is sometimes wrong (headline number is noisier than it looks)</h4>
+<p>Manual spot-check of a <code>flow</code> query Arm B "lost" (<code>rich-02</code>, repeat 1): the judge (o3) penalized Arm B for stating the print buffer is "thread-local," calling this a factual error ("the buffer is an attribute on the Console instance, not thread-local"). Checking Rich's actual source shows Arm B was correct and the judge was wrong:</p>
+<pre><code class="language-python">class ConsoleThreadLocals(threading.local):
+    &quot;&quot;&quot;Thread local values for Console context.&quot;&quot;&quot;
+...
+@property
+def _buffer(self) -&gt; List[Segment]:
+    &quot;&quot;&quot;Get a thread local buffer.&quot;&quot;&quot;
+    return self._thread_locals.buffer
+</code></pre>
+<p>This is one manually-verified case, not an automated audit of all judged queries — but it demonstrates that some fraction of the reported win/loss split is judge noise rather than a real quality gap. With 58/144 judged queries already ties, the true gap between arms is likely smaller than the raw 45.1% vs. 54.9% split suggests.</p>
+<h4 id="2-a-real-mechanism-over-trusting-the-graph-as-a-complete-answer">2. A real mechanism: over-trusting the graph as a complete answer</h4>
+<p>First, a sanity check on Arm B's setup itself: across all 144 successful Arm B runs, <strong>75 used both native and ContextAI tools together</strong>, 69 used ContextAI tools only (by choice, not necessity), and <strong>0 were missing native tool access</strong> — i.e. Arm B never lost capability relative to Arm A; it only ever gained the option to use ContextAI's tools. Any quality gap is therefore about how the extra tool was <em>used</em>, not about Arm B being handicapped.</p>
+<p>Across the 87 paired (query, repeat) cases with an objective answer key, Arm B's predicted symbol set was a <strong>strict subset</strong> of Arm A's in 19 cases, versus only 1 case the other way around. In other words, when one arm's answer was a pure subset of the other's (never contained anything the other missed), it was Arm B's more often — the signature of trusting a single structured source over exhaustive verification.</p>
+<p>ContextAI's graph is a static-analysis snapshot with known blind spots — the MCP server itself exposes a <code>list_gaps</code> tool specifically for <code>unresolved_calls</code> and <code>dynamic_gaps</code> (decorators, dynamic dispatch, etc. a static analyzer can't always resolve). When Codex treated <code>get_context</code>/<code>find_node</code>'s returned edges as the complete answer instead of cross-checking with a grep pass, it inherited those blind spots. Grep-based Arm A doesn't have this particular blind spot, because it searches exhaustively by construction.</p>
+<p>Examples (<code>click-02</code> r0, <code>click-02</code> r1):</p>
+<pre><code>click-02 r0:
+  gold:  ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::Abort', 'exceptions.py::show', 'utils.py::PacifyFlushWrapper', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm A: ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::show', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm B: ['core.py::_main_shell_completion', 'core.py::invoke', 'core.py::make_context', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']   (strict subset of A's answer)
+
+click-02 r1:
+  gold:  ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::Abort', 'exceptions.py::show', 'utils.py::PacifyFlushWrapper', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm A: ['core.py::_main_shell_completion', 'core.py::exit', 'core.py::invoke', 'core.py::make_context', 'exceptions.py::show', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']
+  Arm B: ['core.py::_main_shell_completion', 'core.py::invoke', 'core.py::make_context', 'utils.py::_detect_program_name', 'utils.py::_expand_args', 'utils.py::echo']   (strict subset of A's answer)
+
+</code></pre>
+<p><strong>Takeaway</strong>: more tool capability doesn't guarantee better use of it. A tool that returns a fast, confident, structured answer can let an agent skip the slower verification step it would otherwise do — and that answer can be silently incomplete. This suggests ContextAI's tools (or prompting around them) should nudge agents to treat the graph as a lead to verify for exhaustive-enumeration questions ("who calls X"), not a final answer.</p>
+<h3 id="efficiency">Efficiency</h3>
+<p><img alt="efficiency" src="efficiency.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th>n</th>
+<th>mean tool calls</th>
+<th>mean MCP calls</th>
+<th>mean input tokens</th>
+<th>mean output tokens</th>
+<th>mean latency (s)</th>
+<th>% used ContextAI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>144</td>
+<td>14.4</td>
+<td>0.0</td>
+<td>177898</td>
+<td>2734</td>
+<td>42.0</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>B</td>
+<td>144</td>
+<td>13.8</td>
+<td>10.0</td>
+<td>300852</td>
+<td>2534</td>
+<td>44.1</td>
+<td>100%</td>
+</tr>
+</tbody>
+</table>
+<p>Total runs: 288, failed: 0.</p>
+<h3 id="methodology-notes-deviations-from-metricsmd">Methodology notes / deviations from METRICS.md</h3>
+<ul>
+<li><strong>Answerer</strong>: Codex CLI (<code>codex exec</code>, model <code>gpt-5-codex</code>), not a raw OpenAI chat completion — chosen so the comparison reflects a real, widely-used coding agent rather than a custom-built minimal tool loop.</li>
+<li><strong>Judge</strong>: <code>o3</code> (a distinct OpenAI model from the answerer), blind, pairwise order randomized, given the objective answer key as reference when available.</li>
+<li><strong>Sandbox</strong>: both arms run with <code>--dangerously-bypass-approvals-and-sandbox</code>. Codex's non-interactive mode currently auto-cancels MCP tool call approvals instead of allowing them (see <a href="https://github.com/openai/codex/issues/24135">openai/codex#24135</a>), so Arm B needs the bypass to use ContextAI at all; it is applied uniformly to Arm A too so the <em>only</em> difference between arms is tool availability, not sandboxing. This is a contained, documented trade-off: read-oriented questions against pinned, throwaway clones.</li>
+<li><strong>Tool-call budget</strong>: METRICS.md specifies a 25-tool-call cap; the Codex CLI has no native per-run tool-call limit, so a wall-clock timeout is used instead as the safety bound.</li>
+<li>ContextAI is only ever accessed by Codex itself (via the <code>contextai-graph</code> MCP server registered in Codex's own config) — never by the harness's orchestration code directly.</li>
+</ul></body></html>
