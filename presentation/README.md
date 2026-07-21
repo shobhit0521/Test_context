@@ -1,19 +1,35 @@
 # Presentation deck
 
-A non-technical, visual slide deck covering the ContextAI evaluation: what a
-code graph is, how it was connected to a real AI coding agent via MCP, how
-testing was done, what the results were, and a closing reflection on how the
-original motivation for this kind of tool has shifted as AI models have
-grown more capable.
+A non-technical, visual slide deck covering **the whole project**, which spans
+three repos:
+
+- **[ContextAI](https://github.com/shobhit0521/ContextAI)** — the code-graph
+  engine. Statically analyzes (and optionally runtime-traces) a Python
+  project into a typed `graph.json` of nodes (functions/classes/routes/...)
+  and edges (calls/imports/reads-writes/...).
+- **[ConnectContext](https://github.com/shobhit0521/ConnectContext)** — the
+  MCP bridge. Published on PyPI as `contextai-mcp`, it exposes ContextAI's
+  graph as 8 tools (`build_graph`, `find_node`, `get_context`, `list_gaps`,
+  `get_edge_path`, `load_graph`, `run_trace`, `merge_trace`) that any MCP
+  client (Claude, Cursor, Codex CLI) can call.
+- **Test_context** (this repo) — the evaluation. Wires ConnectContext into a
+  real coding agent (Codex) and measures, across 288 real runs, whether
+  having the map actually makes it better at understanding code.
+
+The deck walks through what a "code graph" is, how the three repos fit
+together, how the evaluation was built and run, what the results were, and a
+closing reflection on how the original motivation for this kind of tool has
+shifted as AI models have grown more capable.
 
 ## Files
 
-- `ContextAI_Evaluation.pptx` — the deck itself (26 slides). Open in
+- `ContextAI_Evaluation.pptx` — the deck itself (12 dense slides). Open in
   PowerPoint, Keynote, Google Slides, or LibreOffice Impress.
 - `build_deck.py` — generates the deck. Run `python3 build_deck.py` to
   rebuild it (also regenerates all image assets first).
-- `make_diagrams.py` — generates the conceptual diagrams (the "map vs. no
-  map" illustration, the MCP connection diagram, the pipeline flow, etc.).
+- `make_diagrams.py` — generates the conceptual diagrams: the "map vs. no
+  map" illustration, the three-repos architecture, the ContextAI extraction
+  pipeline, the ConnectContext tool bridge, and the Test_context methodology.
 - `make_charts.py` — generates simplified, plain-language versions of the
   result charts from `eval/report/REPORT.md`, sized and labeled for a
   presentation rather than a technical report.
@@ -24,6 +40,7 @@ grown more capable.
 
 ```bash
 cd presentation
+pip install -r requirements.txt   # python-pptx + Pillow (matplotlib comes from the repo root requirements.txt)
 python3 build_deck.py
 ```
 
@@ -33,6 +50,10 @@ slide content in `build_deck.py` and re-running always produces a consistent
 deck.
 
 The numbers on the result slides mirror `eval/report/REPORT.md` — the
-full 288-run evaluation (48 questions x 2 modes x 3 repeats). If that
-evaluation is ever re-run with new results, update the hardcoded figures in
-`make_charts.py` and the narrative slides in `build_deck.py` to match.
+full 288-run evaluation (48 questions x 2 modes x 3 repeats) from
+Test_context. If that evaluation is ever re-run with new results, update the
+hardcoded figures in `make_charts.py` and the narrative slides in
+`build_deck.py` to match. The ContextAI/ConnectContext architecture slides
+describe those repos as of the versions pinned in the root `requirements.txt`
+(`contextai-graph`, `contextai-mcp`) — refresh them if those repos' tool set
+or extraction layers change.
